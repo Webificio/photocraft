@@ -3433,6 +3433,7 @@ dependencies = [
  "photocraft-tablet",
  "photocraft-ui-egui",
  "rfd",
+ "ron",
  "serde_json",
  "winresource",
 ]
