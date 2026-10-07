@@ -56,6 +56,9 @@ fn native_options() -> eframe::NativeOptions {
             .with_titlebar_shown(false)
             .with_title_shown(false),
         centered: true,
+        // eframe saves native window geometry and egui panel/window sizes on exit.
+        // Keep that state beside preferences, including config overrides and portable mode.
+        persistence_path: services::config_dir().map(|dir| dir.join("ui.ron")),
         ..Default::default()
     }
 }
@@ -312,6 +315,44 @@ fn main() -> eframe::Result {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn window_and_panel_geometry_survive_a_restart() {
+        let options = super::native_options();
+        assert!(options.persist_window);
+        assert_eq!(options.persistence_path, super::services::config_dir().map(|dir| dir.join("ui.ron")));
+
+        #[derive(Default)]
+        struct Storage(std::collections::BTreeMap<String, String>);
+        impl eframe::Storage for Storage {
+            fn get_string(&self, key: &str) -> Option<String> {
+                self.0.get(key).cloned()
+            }
+            fn set_string(&mut self, key: &str, value: String) {
+                self.0.insert(key.into(), value);
+            }
+            fn remove_string(&mut self, key: &str) {
+                self.0.remove(key);
+            }
+            fn flush(&mut self) {}
+        }
+        let ctx = egui::Context::default();
+        let input = || egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1200.0, 800.0))), ..Default::default() };
+        let mut output = ctx.run_ui(input(), |ui| {
+            egui::Panel::right("dock").exact_size(410.0).show(ui, |ui| ui.set_min_width(ui.available_width()));
+        });
+        output.textures_delta.clear();
+        let mut storage = Storage::default();
+        ctx.memory(|memory| eframe::set_value(&mut storage, "egui", memory));
+        let restored = egui::Context::default();
+        restored.memory_mut(|memory| *memory = eframe::get_value(&storage, "egui").unwrap());
+        let mut output = restored.run_ui(input(), |ui| {
+            egui::Panel::right("dock").default_size(290.0).show(ui, |ui| ui.set_min_width(ui.available_width()));
+        });
+        output.textures_delta.clear();
+        let panel = egui::containers::panel::PanelState::load(&restored, egui::Id::new("dock")).unwrap();
+        assert_eq!(panel.size().x, 410.0);
+    }
+
     #[test]
     fn the_window_opens_centred_at_its_default_size() {
         let o = super::native_options();
